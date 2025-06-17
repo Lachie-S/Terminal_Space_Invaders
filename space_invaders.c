@@ -38,6 +38,8 @@ char* initialise_board();
 int delete_board(char* board);
 
 
+bool exit_game = false;
+
 void* listener(void* in){
     struct listener_input* input = (struct listener_input*) in;
     pthread_mutex_t* mutex = input->mutex;
@@ -45,10 +47,10 @@ void* listener(void* in){
     struct epoll_event* events = input->epoll_events;
     int epoll_fd = input->epoll_fd;
 
-    while(1){
+    while(!exit_game){
         fflush(stdin);
-        int num_keys = epoll_wait(epoll_fd, events, MAX_KEYS_STOR, -1);
-        printf("input recieved");
+        int num_keys = epoll_wait(epoll_fd, events, MAX_KEYS_STOR, 100);
+        write(1, "input recieved", 15);
 
         pthread_mutex_lock(mutex);
         keys->keys_pressed[0] = '\n';
@@ -59,6 +61,8 @@ void* listener(void* in){
         }
         pthread_mutex_unlock(mutex);
     }
+
+    return NULL;
 }
 
 int frame_timer(clock_t frame_start_time){
@@ -86,13 +90,15 @@ int game(char* board, key_stor* keys, pthread_mutex_t* mutex){
     board[get_index(player_pos, FRAME_DEPTH)] = 'M';
     print_frame(board);
 
-    while(1){
+    while(!exit_game){
         clock_t frame_start_time = clock();
         player_pos = create_next_frame(player_pos, board, keys, mutex);
         print_frame(board);
-        frame_timer(frame_start_time);
-        sleep(10);
+        //frame_timer(frame_start_time);
+        sleep(1);
     }
+
+    return 0;
 }
 
 char get_index(int x, int y){
@@ -165,13 +171,12 @@ int delete_board(char* board){
     return 0;
 }
 
-int signal_listener(){
-    sigset_t set;
-    sigaddset(&set, SIGINT);                     //error check
-    int sig;
-    sigwait(&set, &sig);                        //error check
+void exit_func(int signo, siginfo_t *info, void *context){
+    if(signo == SIGINT){
+        exit_game = true;
+    }
+    return;
 }
-
 
 int main(){
 
@@ -183,7 +188,7 @@ int main(){
 
     //create key mutex
     pthread_mutex_t* mutex = (pthread_mutex_t*) malloc(sizeof(pthread_mutex_t));        //error check
-    pthread_mutex_init(mutex, NULL);
+    pthread_mutex_init(mutex, NULL);                                                    //error check
 
 
     //create stdin epoll
@@ -194,16 +199,12 @@ int main(){
     int key_listener = epoll_create1(0);                //error check
     epoll_ctl(key_listener, EPOLL_CTL_ADD, 0, event);
 
-    //create eventfd listener for communicating between game and listener
-    int send_event = eventfd(0,0)                       //error check and close fd
 
     //block all signals and create a signal handling thread
     pthread_t signal_thread;
     sigset_t* signal_block = (sigset_t*) malloc(sizeof(sigset_t));      //error check
     sigfillset(signal_block);
     pthread_sigmask(SIG_BLOCK, signal_block, NULL);                     //error check
-    pthread_create(&signal_thread, NULL, &signal_listener, (void *) &send_event);       //error check
-
 
     //create listener input and start thread
     struct listener_input* input = (struct listener_input*) malloc(sizeof(struct listener_input));
@@ -211,8 +212,37 @@ int main(){
     pthread_t listener_thread;
     pthread_create(&listener_thread, NULL, &listener, input);         //error check
 
+
+    //unblock all signals in thread
+    pthread_sigmask(SIG_UNBLOCK, signal_block, NULL);
+
+
+    //create signal handler
+    struct sigaction act = {0};
+    act.sa_sigaction = &exit_func;
+
+    sigaction(SIGINT, &act, NULL);      //error check
+
+
     char* board = initialise_board();
 
+    //runs infinite while loop until ctr-c is pressed
     game(board, keys, mutex);
+
+    //clean up
+
+    pthread_join(listener_thread, NULL);
+
+    free(board);
+    free(key_array);
+    free(keys);
+    free(mutex);
+    free(event);
+    free(events);
+    free(signal_block);
+    free(input);
+
+
+    return 0;
 
 }
