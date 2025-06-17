@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/eventfd.h>
+#include <termios.h>
+
 
 #define MAX_KEYS 2
 #define FPS 1
@@ -180,6 +182,14 @@ void exit_func(int signo, siginfo_t *info, void *context){
 
 int main(){
 
+    //adjust terminal settings
+    struct termios old_term_settings = {0};
+    tcgetattr(0, &old_term_settings);
+    struct termios new_term_settings = old_term_settings;
+    new_term_settings.c_lflag = new_term_settings.c_lflag | ICANON;
+    new_term_settings.c_lflag = new_term_settings.c_lflag & ~ECHO;
+    tcsetattr(0, TCSANOW, &new_term_settings);
+
     //create key stuff
     char* key_array = (char*) malloc(MAX_KEYS);                     //errror check
     key_stor* keys = (key_stor*) malloc(sizeof(key_stor));          //error check
@@ -241,6 +251,11 @@ int main(){
     free(events);
     free(signal_block);
     free(input);
+
+    printf("\n");
+
+    tcsetattr(0, TCSANOW, &old_term_settings);
+
 
 
     return 0;
