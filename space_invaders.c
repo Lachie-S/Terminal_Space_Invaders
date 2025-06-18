@@ -9,11 +9,13 @@
 #include <signal.h>
 #include <sys/eventfd.h>
 #include <termios.h>
+#include <fcntl.h>
+
 
 
 #define MAX_KEYS 2
 #define FPS 1
-#define FRAME_WIDTH 5
+#define FRAME_WIDTH 10
 #define FRAME_DEPTH 10
 #define MAX_KEYS_STOR 2
 #define CLOCKS_PER_SEC_INV 1/CLOCKS_PER_SEC
@@ -41,8 +43,10 @@ int delete_board(char* board);
 
 
 bool exit_game = false;
+FILE* logger;
 
 void* listener(void* in){
+    //TODO, listener not working :(
     struct listener_input* input = (struct listener_input*) in;
     pthread_mutex_t* mutex = input->mutex;
     key_stor* keys = input->keys;
@@ -52,8 +56,7 @@ void* listener(void* in){
     while(!exit_game){
         fflush(stdin);
         int num_keys = epoll_wait(epoll_fd, events, MAX_KEYS_STOR, 100);
-        write(1, "input recieved", 15);
-
+        
         pthread_mutex_lock(mutex);
         keys->keys_pressed[0] = '\n';
         keys->keys_pressed[1] = '\n';
@@ -79,25 +82,22 @@ int frame_timer(clock_t frame_start_time){
 int print_frame(char* board){
     char move[] = "\x1b[u";
     write(1, move, 4);
-    write(1, board, FRAME_DEPTH*(FRAME_WIDTH+1));
+    write(1, board, FRAME_DEPTH*(FRAME_WIDTH+1)+1);
 }
 
 int game(char* board, key_stor* keys, pthread_mutex_t* mutex){
 
-    //save pos to write to:
-    char save[] = "\x1b[s";
-    write(1,save,4);
-
-    int player_pos = FRAME_WIDTH*0.5 + 1;
-    board[get_index(player_pos, FRAME_DEPTH)] = 'M';
+    int player_pos = FRAME_WIDTH*0.5;
+    //board[3] = 'm';
+    board[get_index(player_pos, FRAME_DEPTH-1)] = 'M';
     print_frame(board);
 
     while(!exit_game){
         clock_t frame_start_time = clock();
         player_pos = create_next_frame(player_pos, board, keys, mutex);
         print_frame(board);
-        //frame_timer(frame_start_time);
-        sleep(1);
+        frame_timer(frame_start_time);      //issues here
+        //sleep(1);
     }
 
     return 0;
@@ -111,8 +111,8 @@ char get_index(int x, int y){
     if( y < 0 || FRAME_DEPTH < y){
         return -1;
     }
-
-
+    
+    fprintf(logger, "x: %d      y:%d        output: %d\n", x,y, y*(FRAME_WIDTH+1) + x);
     return y*(FRAME_WIDTH+1) + x;
 }
 
@@ -125,7 +125,7 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
 
     int player_shot = -1;
 
-    board[get_index(player_pos, FRAME_DEPTH)] = '\0';
+    board[get_index(player_pos, FRAME_DEPTH)] = '.';
 
     switch(key1){
         case 'a':
@@ -149,20 +149,22 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
             }
     }
 
-    board[get_index(player_pos, FRAME_DEPTH)] = 'M';
+    board[get_index(player_pos, FRAME_DEPTH-1)] = 'M';
 
     return player_pos;
 }
 
 char* initialise_board(){
-    int len = (FRAME_WIDTH+1)*(FRAME_DEPTH);
+    int len = (FRAME_WIDTH+1)*(FRAME_DEPTH)+1;
     char* board = (char*) malloc(len);
     memset(board, '.', len);
+
 
     for(int i = 1; i<=FRAME_DEPTH; i++){
         board[i*(FRAME_WIDTH+1)-1] = '\n';
     }
 
+    board[len-2] = '\n';
     board[len-1] = '\0';
 
     return board;
@@ -182,11 +184,17 @@ void exit_func(int signo, siginfo_t *info, void *context){
 
 int main(){
 
+    logger = fopen("logger.txt", "w");
+
+    //save pos to write to:
+    char save[] = "\x1b[s";
+    write(1,save,4);
+
     //adjust terminal settings
     struct termios old_term_settings = {0};
     tcgetattr(0, &old_term_settings);
     struct termios new_term_settings = old_term_settings;
-    new_term_settings.c_lflag = new_term_settings.c_lflag | ICANON;
+    new_term_settings.c_lflag = new_term_settings.c_lflag & ~ICANON;
     new_term_settings.c_lflag = new_term_settings.c_lflag & ~ECHO;
     tcsetattr(0, TCSANOW, &new_term_settings);
 
@@ -236,13 +244,11 @@ int main(){
 
     char* board = initialise_board();
 
-    //runs infinite while loop until ctr-c is pressed
+    //runs infinite while loop until ctl-c is pressed
     game(board, keys, mutex);
 
     //clean up
-
     pthread_join(listener_thread, NULL);
-
     free(board);
     free(key_array);
     free(keys);
@@ -254,10 +260,9 @@ int main(){
 
     printf("\n");
 
+    fclose(logger);
+
     tcsetattr(0, TCSANOW, &old_term_settings);
 
-
-
     return 0;
-
 }
