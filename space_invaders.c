@@ -32,6 +32,11 @@ struct listener_input{
     int epoll_fd;
 };
 
+typedef struct {
+    int x;
+    int y;
+} coords;
+
 void* listener(void* input);
 int frame_timer(clock_t frame_start_time);
 int print_frame(char* board);
@@ -73,10 +78,12 @@ void* listener(void* in){
 int frame_timer(clock_t frame_start_time){
     float run_time = (clock() - frame_start_time)*CLOCKS_PER_SEC_INV;
 
-    float wait_time = 0.03125 - run_time;     //0.03125 = 1/32
+    //make timer struct
+    struct timespec wait_time;
+    wait_time.tv_sec = 0;
+    wait_time.tv_nsec = (0.03125 - run_time)*1000000000;     //0.03125 = 1/32
 
-    fprintf(logger, "%f\n", wait_time);
-    sleep(wait_time);
+    nanosleep(&wait_time, NULL);
     return 0;
 }
 
@@ -96,7 +103,7 @@ int game(char* board, key_stor* keys, pthread_mutex_t* mutex){
         clock_t frame_start_time = clock();
         player_pos = create_next_frame(player_pos, board, keys, mutex);
         print_frame(board);
-        frame_timer(frame_start_time);      //issues here
+        frame_timer(frame_start_time);      //issues here its not sleeping
     }
 
     return 0;
@@ -112,6 +119,16 @@ char get_index(int x, int y){
     }
     
     return y*(FRAME_WIDTH+1) + x;
+}
+
+int get_coords(int index, coords* output){
+
+    int x = index % (FRAME_WIDTH+1);
+    int y = (index - x)*(1.0/(FRAME_WIDTH+1));
+    output->x = x;
+    output->y = y;
+
+    return 0;
 }
 
 int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex_t* mutex){
@@ -148,9 +165,31 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
                 player_pos += 1;
             }
     }
-
+    
     key1 = '\0';
     key2 = '\0';
+
+    coords cords = {0,0};
+
+    for(int i = 0; i < (FRAME_WIDTH+1) * FRAME_DEPTH; i++){
+        switch(board[i]){
+            default:
+                break;
+
+            case '|':
+                get_coords(i, &cords);
+                board[i] = '.';
+                if(cords.y > 0){
+                    board[get_index(cords.x, cords.y - 1)] = '|';
+                }
+        }
+    }
+
+    if(player_shot != -1){
+        board[get_index(player_pos, FRAME_DEPTH-2)] = '|';
+    }
+
+
 
     board[get_index(player_pos, FRAME_DEPTH-1)] = 'M';
 
