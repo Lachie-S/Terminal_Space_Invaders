@@ -19,6 +19,7 @@
 #define FRAME_DEPTH 10
 #define MAX_KEYS_STOR 2
 #define CLOCKS_PER_SEC_INV 1/CLOCKS_PER_SEC
+#define BOARD_SIZE (FRAME_WIDTH+3)*(FRAME_DEPTH)+1
 
 
 typedef struct {
@@ -90,7 +91,7 @@ int frame_timer(clock_t frame_start_time){
 int print_frame(char* board){
     char move[] = "\x1b[u";
     write(1, move, 4);
-    write(1, board, FRAME_DEPTH*(FRAME_WIDTH+1)+1);
+    write(1, board, BOARD_SIZE);
 }
 
 int game(char* board, key_stor* keys, pthread_mutex_t* mutex){
@@ -118,7 +119,7 @@ char get_index(int x, int y){
         return -1;
     }
     
-    return y*(FRAME_WIDTH+1) + x;
+    return y*(FRAME_WIDTH+3) + x + 1;
 }
 
 int get_coords(int index, coords* output){
@@ -142,7 +143,7 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
 
     int player_shot = -1;
 
-    board[get_index(player_pos, FRAME_DEPTH-1)] = '.';
+    board[get_index(player_pos, FRAME_DEPTH-1)] = '_';
 
     switch(key1){
         case 'a':
@@ -171,17 +172,19 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
 
     coords cords = {0,0};
 
-    for(int i = 0; i < (FRAME_WIDTH+1) * FRAME_DEPTH; i++){
-        switch(board[i]){
-            default:
-                break;
+    for(int y = 0; y<FRAME_DEPTH; y++){
+        for(int x = 0; x<FRAME_WIDTH; x++){
+            int i = get_index(x,y);
+            switch(board[i]){
+                default:
+                    break;
 
-            case '|':
-                get_coords(i, &cords);
-                board[i] = '.';
-                if(cords.y > 0){
-                    board[get_index(cords.x, cords.y - 1)] = '|';
-                }
+                case '|':
+                    board[i] = '.';
+                    if(y > 0){
+                        board[get_index(x, y - 1)] = '|';
+                    }
+            }
         }
     }
 
@@ -197,17 +200,23 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
 }
 
 char* initialise_board(){
-    int len = (FRAME_WIDTH+1)*(FRAME_DEPTH)+1;
-    char* board = (char*) malloc(len);
-    memset(board, '.', len);
+    char* board = (char*) malloc(BOARD_SIZE);
+    memset(board, '.', BOARD_SIZE);
 
 
     for(int i = 1; i<=FRAME_DEPTH; i++){
-        board[i*(FRAME_WIDTH+1)-1] = '\n';
+        board[i*(FRAME_WIDTH+3)-1] = '\n';
+        board[i*(FRAME_WIDTH+3)-2] = '|';
+        board[i*(FRAME_WIDTH+3)-13] = '|';
     }
 
-    board[len-2] = '\n';
-    board[len-1] = '\0';
+    for(int i = 0; i<FRAME_WIDTH; i++){
+        board[get_index(i,FRAME_DEPTH-1)] = '_';
+    }
+
+
+    board[BOARD_SIZE-2] = '\n';
+    board[BOARD_SIZE-1] = '\0';
 
     return board;
 }
