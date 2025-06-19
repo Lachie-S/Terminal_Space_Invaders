@@ -71,10 +71,11 @@ void* listener(void* in){
 }
 
 int frame_timer(clock_t frame_start_time){
-    int run_time = (clock() - frame_start_time)*CLOCKS_PER_SEC_INV;
+    float run_time = (clock() - frame_start_time)*CLOCKS_PER_SEC_INV;
 
-    int wait_time = 0.03125 - run_time;     //0.03125 = 1/32
+    float wait_time = 0.03125 - run_time;     //0.03125 = 1/32
 
+    fprintf(logger, "%f\n", wait_time);
     sleep(wait_time);
     return 0;
 }
@@ -88,7 +89,6 @@ int print_frame(char* board){
 int game(char* board, key_stor* keys, pthread_mutex_t* mutex){
 
     int player_pos = FRAME_WIDTH*0.5;
-    //board[3] = 'm';
     board[get_index(player_pos, FRAME_DEPTH-1)] = 'M';
     print_frame(board);
 
@@ -97,7 +97,6 @@ int game(char* board, key_stor* keys, pthread_mutex_t* mutex){
         player_pos = create_next_frame(player_pos, board, keys, mutex);
         print_frame(board);
         frame_timer(frame_start_time);      //issues here
-        //sleep(1);
     }
 
     return 0;
@@ -112,7 +111,6 @@ char get_index(int x, int y){
         return -1;
     }
     
-    fprintf(logger, "x: %d      y:%d        output: %d\n", x,y, y*(FRAME_WIDTH+1) + x);
     return y*(FRAME_WIDTH+1) + x;
 }
 
@@ -121,11 +119,13 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
     pthread_mutex_lock(mutex);
     char key1 = keys->keys_pressed[0];
     char key2 = keys->keys_pressed[1];
+    keys->keys_pressed[0] = '\0';
+    keys->keys_pressed[1] = '\0';
     pthread_mutex_unlock(mutex);
 
     int player_shot = -1;
 
-    board[get_index(player_pos, FRAME_DEPTH)] = '.';
+    board[get_index(player_pos, FRAME_DEPTH-1)] = '.';
 
     switch(key1){
         case 'a':
@@ -148,6 +148,9 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
                 player_pos += 1;
             }
     }
+
+    key1 = '\0';
+    key2 = '\0';
 
     board[get_index(player_pos, FRAME_DEPTH-1)] = 'M';
 
