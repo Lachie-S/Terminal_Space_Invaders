@@ -11,6 +11,8 @@
 #include <termios.h>
 #include <fcntl.h>
 
+#include "invader_list.h"           //change to a .h file
+
 
 
 #define MAX_KEYS 2
@@ -43,7 +45,7 @@ int frame_timer(clock_t frame_start_time);
 int print_frame(char* board);
 int game(char* board, key_stor* keys, pthread_mutex_t* mutex);
 char get_index(int x, int y);
-int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex_t* mutex);
+int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex_t* mutex, invader_node* invaders);
 char* initialise_board();
 int delete_board(char* board);
 
@@ -89,8 +91,7 @@ int frame_timer(clock_t frame_start_time){
 }
 
 int print_frame(char* board){
-    char move[] = "\x1b[u";
-    write(1, move, 4);
+    write(1, "\x1b[u", 4);
     write(1, board, BOARD_SIZE);
 }
 
@@ -99,13 +100,24 @@ int game(char* board, key_stor* keys, pthread_mutex_t* mutex){
     int player_pos = FRAME_WIDTH*0.5;
     board[get_index(player_pos, FRAME_DEPTH-1)] = 'M';
     print_frame(board);
+    invader_node* invaders = NULL;
 
     while(!exit_game){
         clock_t frame_start_time = clock();
-        player_pos = create_next_frame(player_pos, board, keys, mutex);
+        player_pos = create_next_frame(player_pos, board, keys, mutex, invaders);
         print_frame(board);
         frame_timer(frame_start_time);      //issues here its not sleeping
     }
+
+    //free invader list
+    invader_node* current = invaders;
+    invader_node* to_delete = NULL;
+    while(current != NULL){
+        to_delete = current;
+        current = current->next;
+        free(to_delete);
+    }
+
 
     return 0;
 }
@@ -132,7 +144,47 @@ int get_coords(int index, coords* output){
     return 0;
 }
 
-int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex_t* mutex){
+bool check_spawn_surroundings(char* board, int x){
+    for(int y = 0; y<2; y++){
+        for(int dx = -1; dx<2; dx++){
+            if(board[get_index(x+dx, y)] == 'V'){
+                return false;
+            }
+
+        }
+    }
+    return true;
+}
+
+int check_surround(int x,int y, char* board){
+    int count = 0;
+    for(int y = 0; y<2; y++){
+        for(int dx = -1; dx<3; dx++){
+            int i = get_index(x+dx, y);
+            if(i != -1 && board[get_index(x+dx,y)] == 'V'){
+                count++;
+            }
+        }
+    }
+    
+    return count != 0;
+    
+}
+
+void move_invader(invader_node* invader, char* board){
+    if(invader->state){
+        invader->y ++;
+        invader->state = false;
+    } else{
+        bool left = check_surround(invader->x-1, invader->y, board);
+        bool down = check_surround(invader->x, invader->y+1, board);
+        bool right = check_surround(invader->x+1, invader->y, board);
+
+        int decision = rand() % 3;
+    }
+}
+
+int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex_t* mutex, invader_node* invaders){
 
     pthread_mutex_lock(mutex);
     char key1 = keys->keys_pressed[0];
@@ -170,6 +222,42 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
     key1 = '\0';
     key2 = '\0';
 
+    //generate invaders
+    for(int x = 2; x<FRAME_WIDTH; x++){                                   //wont spawn invaders on the far left or right
+        if(check_spawn_surroundings(board, x-1) && rand() % 10 == 1){     //x-1 because get index indexes x from 0 to FRAMEWIDTH-1 inclusive
+            board[x] = 'V';
+            if(invaders == NULL){
+                invaders = (invader_node*) malloc(sizeof(invader_node));
+                invaders->state = true;
+                invaders->x = x-1;
+                invaders->y = 0;
+                invaders->tail = invaders;
+            } else{
+                invader_node* new_invader = (invader_node*) malloc(sizeof(invader_node));
+                new_invader->state = true;
+                new_invader->x = x-1;
+                new_invader->y = 0;
+                new_invader->tail = NULL;
+                invaders->tail = invaders;
+            }
+        }
+    }
+
+    invader_node* prev_invader = NULL;
+    invader_node* current_invader = invaders;
+    while(current_invader != NULL){
+        int i = get_index(current_invader->x, current_invader->y+1);
+        if(i != -1 && board[i] == '|'){
+            delete_invader(prev_invader, current_invader);
+            board[i] = '.';
+        } else{
+            move_invader(current_invader, board);
+        }
+
+        prev_invader = current_invader;
+        current_invader = current_invader->next;
+    }
+
     coords cords = {0,0};
 
     for(int y = 0; y<FRAME_DEPTH; y++){
@@ -187,6 +275,7 @@ int create_next_frame(int player_pos, char* board, key_stor* keys, pthread_mutex
             }
         }
     }
+
 
     if(player_shot != -1){
         board[get_index(player_pos, FRAME_DEPTH-2)] = '|';
@@ -235,11 +324,12 @@ void exit_func(int signo, siginfo_t *info, void *context){
 
 int main(){
 
+    srand(1);
+
     logger = fopen("logger.txt", "w");
 
     //save pos to write to:
-    char save[] = "\x1b[s";
-    write(1,save,4);
+    write(1,"\x1b[s",4);
 
     //adjust terminal settings
     struct termios old_term_settings = {0};
