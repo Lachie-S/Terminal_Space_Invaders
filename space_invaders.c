@@ -11,12 +11,18 @@
 #include <termios.h>
 #include <fcntl.h>
 
-#include "invader_list.h"           //change to a .h file
+#include "invader_list.h"       
+
+/*TODO:
+    - key storage, should work at low fps, its not holding onto events for long enough
+    - If the window is not big enough it will break, is there a fix for this? Also why, also not compatible with powershell
+
+*/
 
 
 
 #define MAX_KEYS 2
-#define FPS 1
+#define FPS 2                   //cant be set to one as this will cause nanosecond wait to reset to 0
 #define FRAME_WIDTH 10
 #define FRAME_DEPTH 10
 #define MAX_KEYS_STOR 2
@@ -84,7 +90,9 @@ int frame_timer(clock_t frame_start_time){
     //make timer struct
     struct timespec wait_time;
     wait_time.tv_sec = 0;
-    wait_time.tv_nsec = (0.03125 - run_time)*1000000000;     //0.03125 = 1/32
+    wait_time.tv_nsec = ((1.0/FPS) - run_time)*1000000000;     //0.03125 = 1/32
+
+    fprintf(logger, "run time: %f       wati time: %ld\n", run_time, wait_time.tv_nsec);
 
     nanosleep(&wait_time, NULL);
     return 0;
@@ -176,8 +184,8 @@ void move_invader(invader_node* invader, char* board){
         invader->y ++;
         invader->state = false;
     } else{
-        bool left = check_surround(invader->x-1, invader->y, board);
-        bool down = check_surround(invader->x, invader->y+1, board);
+        bool left =  check_surround(invader->x-1, invader->y, board);
+        bool down =  check_surround(invader->x, invader->y+1, board);
         bool right = check_surround(invader->x+1, invader->y, board);
 
         int decision = rand() % 3;
